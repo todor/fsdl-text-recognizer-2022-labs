@@ -49,6 +49,12 @@ def _setup_parser():
         help="If non-zero, applies early stopping, with the provided value as the 'patience' argument."
         + " Default is 0.",
     )
+    parser.add_argument(
+        "--check_val_every_n_epoch",
+        type=int,
+        default=1,
+        help="How often to run validation within training (in epochs).",
+    )
 
     # Get the data and model classes, so that we can add their specific arguments
     temp_args, _ = parser.parse_known_args()
