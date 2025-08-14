@@ -147,8 +147,12 @@ def main():
     trainer_kwargs = {k: v for k, v in vars(args).items() if k in trainer_param_names}
     
     # Ensure defaults for devices/accelerator
-    trainer_kwargs.setdefault("devices", 1)
-    trainer_kwargs.setdefault("accelerator", "gpu" if torch.cuda.is_available() else "cpu")
+    if torch.cuda.is_available():
+        trainer_kwargs["accelerator"] = "gpu"
+        trainer_kwargs["devices"] = torch.cuda.device_count()
+    else:
+        trainer_kwargs["accelerator"] = "cpu"
+        trainer_kwargs["devices"] = 1
     
     # Initialize Trainer
     trainer = pl.Trainer(**trainer_kwargs, callbacks=callbacks, logger=logger)
