@@ -157,8 +157,12 @@ def main():
     # Initialize Trainer
     trainer = pl.Trainer(**trainer_kwargs, callbacks=callbacks, logger=logger)
 
-    trainer.tune(lit_model, datamodule=data)  # If passing --auto_lr_find, this will set learning rate
-
+    # If passing --auto_lr_find, this will set learning rate
+    if getattr(args, "auto_lr_find", False):
+        lr_finder = trainer.tuner.lr_find(lit_model, datamodule=data)
+        new_lr = lr_finder.suggestion()
+        lit_model.hparams.lr = new_lr
+    
     trainer.fit(lit_model, datamodule=data)
 
     best_model_path = checkpoint_callback.best_model_path
