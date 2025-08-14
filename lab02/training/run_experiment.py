@@ -140,7 +140,7 @@ def main():
         )
         callbacks.append(early_stopping_callback)
 
-    trainer = pl.Trainer.from_argparse_args(args, callbacks=callbacks, logger=logger)
+    trainer = pl.Trainer(**vars(args), callbacks=callbacks, logger=logger)
 
     trainer.tune(lit_model, datamodule=data)  # If passing --auto_lr_find, this will set learning rate
 
