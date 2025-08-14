@@ -10,6 +10,8 @@ import torch
 from text_recognizer import lit_models
 from training.util import DATA_CLASS_MODULE, import_class, MODEL_CLASS_MODULE, setup_data_and_model_from_args
 
+import inspect
+
 
 # In order to ensure reproducible experiments, we must set random seeds.
 np.random.seed(42)
@@ -140,7 +142,13 @@ def main():
         )
         callbacks.append(early_stopping_callback)
 
-    trainer = pl.Trainer(**vars(args), callbacks=callbacks, logger=logger)
+    # Get Trainer __init__ parameter names
+    trainer_param_names = inspect.signature(pl.Trainer).parameters.keys()
+    
+    # Keep only keys that match Trainer args
+    trainer_kwargs = {k: v for k, v in vars(args).items() if k in trainer_param_names}
+    
+    trainer = pl.Trainer(**trainer_kwargs, callbacks=callbacks, logger=logger)
 
     trainer.tune(lit_model, datamodule=data)  # If passing --auto_lr_find, this will set learning rate
 
