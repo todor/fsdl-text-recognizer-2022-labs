@@ -1,5 +1,4 @@
 """Experiment-running framework."""
-from pytorch_lightning.utilities.cli import LightningArgumentParser
 import argparse
 from pathlib import Path
 
@@ -19,16 +18,13 @@ torch.manual_seed(42)
 
 def _setup_parser():
     """Set up Python's ArgumentParser with data, model, trainer, and other arguments."""
-    
-    # Use LightningArgumentParser instead of plain argparse
-    parser = LightningArgumentParser(add_help=False)
+    parser = argparse.ArgumentParser(add_help=False)
 
-    # Add Trainer specific arguments, such as --max_epochs, --gpus, --precision
-    parser.add_lightning_class_args(pl.Trainer, "trainer")
-
-    # Wrap with a standard argparse parser to keep compatibility with the rest of the code
-    parser = argparse.ArgumentParser(add_help=False, parents=[parser])
-    parser.set_defaults(max_epochs=1)
+    # Manually add Trainer-specific arguments (no add_argparse_args in PL v2)
+    trainer_group = parser.add_argument_group("Trainer Args")
+    trainer_group.add_argument("--max_epochs", type=int, default=1, help="Number of epochs to train for.")
+    trainer_group.add_argument("--accelerator", type=str, default="auto", help="Type of accelerator: 'cpu', 'gpu', etc.")
+    trainer_group.add_argument("--devices", type=int, default=None, help="Number of devices (e.g. GPUs) to use.")
 
     # Basic arguments
     parser.add_argument(
@@ -71,6 +67,7 @@ def _setup_parser():
 
     parser.add_argument("--help", "-h", action="help")
     return parser
+
 
 
 @rank_zero_only
