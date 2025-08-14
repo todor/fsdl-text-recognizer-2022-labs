@@ -142,17 +142,15 @@ def main():
         )
         callbacks.append(early_stopping_callback)
 
-    # Get Trainer __init__ parameter names
-    trainer_param_names = inspect.signature(pl.Trainer).parameters.keys()
-    
-    # Keep only keys that match Trainer args
+    # Keep only arguments that match Trainer __init__ parameters
+    trainer_param_names = inspect.signature(pl.Trainer.__init__).parameters.keys()
     trainer_kwargs = {k: v for k, v in vars(args).items() if k in trainer_param_names}
-
-    if "devices" not in trainer_kwargs:
-        trainer_kwargs["devices"] = 1
-    if "accelerator" not in trainer_kwargs:
-        trainer_kwargs["accelerator"] = "gpu" if torch.cuda.is_available() else "cpu"
     
+    # Ensure defaults for devices/accelerator
+    trainer_kwargs.setdefault("devices", 1)
+    trainer_kwargs.setdefault("accelerator", "gpu" if torch.cuda.is_available() else "cpu")
+    
+    # Initialize Trainer
     trainer = pl.Trainer(**trainer_kwargs, callbacks=callbacks, logger=logger)
 
     trainer.tune(lit_model, datamodule=data)  # If passing --auto_lr_find, this will set learning rate
