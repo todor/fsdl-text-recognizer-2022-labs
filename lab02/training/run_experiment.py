@@ -147,6 +147,11 @@ def main():
     
     # Keep only keys that match Trainer args
     trainer_kwargs = {k: v for k, v in vars(args).items() if k in trainer_param_names}
+
+    if "devices" not in trainer_kwargs:
+        trainer_kwargs["devices"] = 1
+    if "accelerator" not in trainer_kwargs:
+        trainer_kwargs["accelerator"] = "gpu" if torch.cuda.is_available() else "cpu"
     
     trainer = pl.Trainer(**trainer_kwargs, callbacks=callbacks, logger=logger)
 
