@@ -1,6 +1,7 @@
 """Experiment-running framework."""
 import argparse
 from pathlib import Path
+import inspect
 
 import numpy as np
 import pytorch_lightning as pl
@@ -22,11 +23,18 @@ def _setup_parser():
     """Set up Python's ArgumentParser with data, model, trainer, and other arguments."""
     parser = argparse.ArgumentParser(add_help=False)
 
-    # Add Trainer specific arguments, such as --max_epochs, --gpus, --precision
-    trainer_parser = pl.Trainer.add_argparse_args(parser)
-    trainer_parser._action_groups[1].title = "Trainer Args"
-    parser = argparse.ArgumentParser(add_help=False, parents=[trainer_parser])
-    parser.set_defaults(max_epochs=1)
+    # Trainer args (minimal for PL v2)
+    trainer_group = parser.add_argument_group("Trainer Args")
+    trainer_group.add_argument("--max_epochs", type=int, default=1)
+    trainer_group.add_argument("--accelerator", type=str, default="auto")
+    trainer_group.add_argument("--devices", type=str, default=None)
+    trainer_group.add_argument("--precision", type=str, default="32")
+    trainer_group.add_argument("--limit_train_batches", type=float, default=1.0)
+    trainer_group.add_argument("--limit_val_batches", type=float, default=1.0)
+    trainer_group.add_argument("--limit_test_batches", type=float, default=1.0)
+    trainer_group.add_argument("--log_every_n_steps", type=int, default=50)
+    trainer_group.add_argument("--check_val_every_n_epoch", type=int, default=1)
+    trainer_group.add_argument("--gpus", type=int, default=None)  # backward compatibility
 
     # Basic arguments
     parser.add_argument(
@@ -115,8 +123,8 @@ def main():
     data, model = setup_data_and_model_from_args(args)
 
     lit_model_class = lit_models.BaseLitModel
-
-    if args.loss == "transformer":
+    transformer_models = ["LineCNNTransformer", "Transformer"]
+    if args.model_class in transformer_models or getattr(args, "loss", None) == "transformer":
         lit_model_class = lit_models.TransformerLitModel
 
     if args.load_checkpoint is not None:
@@ -161,7 +169,6 @@ def main():
     if args.wandb and args.loss in ("transformer",):
         callbacks.append(cb.ImageToTextLogger())
 
-    trainer = pl.Trainer.from_argparse_args(args, callbacks=callbacks, logger=logger)
     if args.profile:
         sched = torch.profiler.schedule(wait=0, warmup=3, active=4, repeat=0)
         profiler = pl.profiler.PyTorchProfiler(export_to_chrome=True, schedule=sched, dirpath=experiment_dir)
@@ -169,9 +176,35 @@ def main():
     else:
         profiler = pl.profiler.PassThroughProfiler()
 
-    trainer.profiler = profiler
+    # Initialize Trainer
+    trainer_kwargs = {k: v for k, v in vars(args).items() if k in inspect.signature(pl.Trainer.__init__).parameters.keys()}
 
-    trainer.tune(lit_model, datamodule=data)  # If passing --auto_lr_find, this will set learning rate
+    # Ensure defaults for accelerator/devices
+    if torch.cuda.is_available():
+        trainer_kwargs["accelerator"] = "gpu"
+        trainer_kwargs["devices"] = torch.cuda.device_count()
+    else:
+        trainer_kwargs["accelerator"] = "cpu"
+        trainer_kwargs["devices"] = 1
+
+    trainer = pl.Trainer(
+        max_epochs=getattr(args, "max_epochs", 1),
+        accelerator=trainer_kwargs.get("accelerator"),
+        devices=getattr(args, "devices") or trainer_kwargs.get("devices"),
+        precision=getattr(args, "precision", "32"),
+        limit_train_batches=getattr(args, "limit_train_batches", 1.0),
+        limit_val_batches=getattr(args, "limit_val_batches", 1.0),
+        limit_test_batches=getattr(args, "limit_test_batches", 1.0),
+        log_every_n_steps=getattr(args, "log_every_n_steps", 50),
+        check_val_every_n_epoch=getattr(args, "check_val_every_n_epoch", 1),
+        callbacks=callbacks,
+        logger=logger,
+    )
+
+    # Auto LR find
+    if getattr(args, "auto_lr_find", False):
+        lr_finder = trainer.tuner.lr_find(lit_model, datamodule=data)
+        lit_model.hparams.lr = lr_finder.suggestion()
 
     trainer.fit(lit_model, datamodule=data)
 
