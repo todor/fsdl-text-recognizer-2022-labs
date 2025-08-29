@@ -19,6 +19,9 @@ class TransformerLitModel(BaseImageToTextLitModel):
     def __init__(self, model, args=None):
         super().__init__(model, args)
         self.loss_fn = torch.nn.CrossEntropyLoss(ignore_index=self.padding_index)
+        self.train_cer = CharacterErrorRate()
+        self.val_cer = CharacterErrorRate()
+        self.test_cer = CharacterErrorRate()        
 
     def forward(self, x):
         return self.model(x)
