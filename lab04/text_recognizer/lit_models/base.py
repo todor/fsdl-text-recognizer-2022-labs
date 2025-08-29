@@ -5,7 +5,8 @@ import argparse
 import pytorch_lightning as pl
 import torch
 from torchmetrics import Accuracy
-from torchmetrics import CharacterErrorRate
+
+from .metrics import CharacterErrorRate
 
 
 OPTIMIZER = "Adam"
@@ -78,6 +79,7 @@ class BaseLitModel(pl.LightningModule):
         self.log("train/acc", self.train_acc, on_step=False, on_epoch=True)
 
         outputs = {"loss": loss}
+        self.add_on_first_batch({"logits": logits.detach()}, outputs, batch_idx)
 
         return outputs
 
@@ -96,6 +98,7 @@ class BaseLitModel(pl.LightningModule):
         self.log("validation/acc", self.val_acc, on_step=False, on_epoch=True, prog_bar=True)
 
         outputs = {"loss": loss}
+        self.add_on_first_batch({"logits": logits.detach()}, outputs, batch_idx)
 
         return outputs
 
@@ -105,3 +108,35 @@ class BaseLitModel(pl.LightningModule):
 
         self.log("test/loss", loss, on_step=False, on_epoch=True)
         self.log("test/acc", self.test_acc, on_step=False, on_epoch=True)
+
+    def add_on_first_batch(self, metrics, outputs, batch_idx):
+        if batch_idx == 0:
+            outputs.update(metrics)
+
+    def add_on_logged_batches(self, metrics, outputs):
+        if self.is_logged_batch:
+            outputs.update(metrics)
+
+    def is_logged_batch(self):
+        if self.trainer is None:
+            return False
+        else:
+            return self.trainer._logger_connector.should_update_logs
+
+
+class BaseImageToTextLitModel(BaseLitModel):  # pylint: disable=too-many-ancestors
+    """Base class for ImageToText models in PyTorch Lightning."""
+
+    def __init__(self, model, args: argparse.Namespace = None):
+        super().__init__(model, args)
+        self.model = model
+        self.args = vars(args) if args is not None else {}
+
+        self.inverse_mapping = {val: ind for ind, val in enumerate(self.mapping)}
+        self.start_index = self.inverse_mapping["<S>"]
+        self.end_index = self.inverse_mapping["<E>"]
+        self.padding_index = self.inverse_mapping["<P>"]
+
+        self.ignore_tokens = [self.start_index, self.end_index, self.padding_index]
+        self.val_cer = CharacterErrorRate(self.ignore_tokens)
+        self.test_cer = CharacterErrorRate(self.ignore_tokens)
