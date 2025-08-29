@@ -5,6 +5,7 @@ import torch
 
 from .base import BaseImageToTextLitModel
 from .util import replace_after
+from torchmetrics import CharacterErrorRate
 
 
 class TransformerLitModel(BaseImageToTextLitModel):
