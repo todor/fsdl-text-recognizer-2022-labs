@@ -22,13 +22,23 @@ def _setup_parser():
     """Set up Python's ArgumentParser with data, model, trainer, and other arguments."""
     parser = argparse.ArgumentParser(add_help=False)
 
-    # Manually add Trainer-specific arguments (no add_argparse_args in PL v2)
+    # Minimal Trainer args (PL v2.x)
     trainer_group = parser.add_argument_group("Trainer Args")
-    trainer_group.add_argument("--max_epochs", type=int, default=1, help="Number of epochs to train for.")
-    trainer_group.add_argument("--accelerator", type=str, default="auto", help="Type of accelerator: 'cpu', 'gpu', etc.")
-    trainer_group.add_argument("--devices", type=int, default=None, help="Number of devices (e.g. GPUs) to use.")
+    trainer_group.add_argument("--max_epochs", type=int, default=1, help="Number of training epochs")
+    trainer_group.add_argument("--accelerator", type=str, default="auto", help="cpu, gpu, tpu, mps, or auto")
+    trainer_group.add_argument("--devices", type=str, default=None, help="Number of devices, e.g. 1 or 0,1")
+    trainer_group.add_argument("--precision", type=str, default="32", help="Precision: 16, bf16, or 32")
+    trainer_group.add_argument("--limit_train_batches", type=float, default=1.0, help="Limit training batches (float=percent, int=num_batches)")
+    trainer_group.add_argument("--limit_val_batches", type=float, default=1.0, help="Limit validation batches")
+    trainer_group.add_argument("--limit_test_batches", type=float, default=1.0, help="Limit test batches")
+    trainer_group.add_argument("--log_every_n_steps", type=int, default=50, help="Logging frequency in steps")
+    trainer_group.add_argument("--check_val_every_n_epoch", type=int, default=1, help="Validation frequency in epochs")
+
+    # Backward compatibility for old "--gpus"
+    trainer_group.add_argument("--gpus", type=int, default=None, help="Deprecated, use --devices instead")
 
     # Basic arguments
+    parser.add_argument("--wandb", action="store_true", default=False)
     parser.add_argument(
         "--data_class",
         type=str,
@@ -41,29 +51,14 @@ def _setup_parser():
         default="MLP",
         help=f"String identifier for the model class, relative to {MODEL_CLASS_MODULE}.",
     )
-    parser.add_argument(
-        "--load_checkpoint", type=str, default=None, help="If passed, loads a model from the provided path."
-    )
-    parser.add_argument(
-        "--stop_early",
-        type=int,
-        default=0,
-        help="If non-zero, applies early stopping, with the provided value as the 'patience' argument."
-        + " Default is 0.",
-    )
-    parser.add_argument(
-        "--check_val_every_n_epoch",
-        type=int,
-        default=1,
-        help="How often to run validation within training (in epochs).",
-    )
+    parser.add_argument("--load_checkpoint", type=str, default=None)
+    parser.add_argument("--stop_early", type=int, default=0)
 
-    # Get the data and model classes, so that we can add their specific arguments
+    # Get the data and model classes so we can add their args
     temp_args, _ = parser.parse_known_args()
     data_class = import_class(f"{DATA_CLASS_MODULE}.{temp_args.data_class}")
     model_class = import_class(f"{MODEL_CLASS_MODULE}.{temp_args.model_class}")
 
-    # Get data, model, and LitModel specific arguments
     data_group = parser.add_argument_group("Data Args")
     data_class.add_to_argparse(data_group)
 
@@ -75,6 +70,7 @@ def _setup_parser():
 
     parser.add_argument("--help", "-h", action="help")
     return parser
+
 
 
 
@@ -155,7 +151,19 @@ def main():
         trainer_kwargs["devices"] = 1
     
     # Initialize Trainer
-    trainer = pl.Trainer(**trainer_kwargs, callbacks=callbacks, logger=logger)
+    trainer = pl.Trainer(
+        max_epochs=args.max_epochs,
+        accelerator=args.accelerator,
+        devices=args.gpus if args.gpus is not None else args.devices,
+        precision=args.precision,
+        limit_train_batches=args.limit_train_batches,
+        limit_val_batches=args.limit_val_batches,
+        limit_test_batches=args.limit_test_batches,
+        log_every_n_steps=args.log_every_n_steps,
+        check_val_every_n_epoch=args.check_val_every_n_epoch,
+        callbacks=callbacks,
+        logger=logger,
+    )
 
     # If passing --auto_lr_find, this will set learning rate
     if getattr(args, "auto_lr_find", False):
