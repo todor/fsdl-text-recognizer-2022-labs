@@ -5,6 +5,7 @@ import argparse
 import pytorch_lightning as pl
 import torch
 from torchmetrics import Accuracy
+from torchmetrics import CharacterErrorRate
 
 
 OPTIMIZER = "Adam"
