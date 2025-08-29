@@ -2,10 +2,10 @@
 from typing import List, Sequence
 
 import torch
+from torchmetrics import CharacterErrorRate
 
 from .base import BaseImageToTextLitModel
 from .util import replace_after
-from torchmetrics import CharacterErrorRate
 
 
 class TransformerLitModel(BaseImageToTextLitModel):
