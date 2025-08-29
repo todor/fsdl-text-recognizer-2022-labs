@@ -107,6 +107,11 @@ def main():
 
     lit_model_class = lit_models.BaseLitModel
 
+    # Use TransformerLitModel if the model class or loss indicates a transformer
+    transformer_models = ["LineCNNTransformer", "Transformer"]  # add more if needed
+    if args.model_class in transformer_models or args.loss == "transformer":
+    lit_model_class = lit_models.TransformerLitModel
+    
     if args.load_checkpoint is not None:
         lit_model = lit_model_class.load_from_checkpoint(args.load_checkpoint, args=args, model=model)
     else:
