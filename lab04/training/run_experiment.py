@@ -7,10 +7,10 @@ import pytorch_lightning as pl
 from pytorch_lightning.utilities.rank_zero import rank_zero_info, rank_zero_only
 import torch
 
-from text_recognizer import callbacks as cb
-
 from text_recognizer import lit_models
 from training.util import DATA_CLASS_MODULE, import_class, MODEL_CLASS_MODULE, setup_data_and_model_from_args
+
+import inspect
 
 
 # In order to ensure reproducible experiments, we must set random seeds.
@@ -22,19 +22,13 @@ def _setup_parser():
     """Set up Python's ArgumentParser with data, model, trainer, and other arguments."""
     parser = argparse.ArgumentParser(add_help=False)
 
-    # Add Trainer specific arguments, such as --max_epochs, --gpus, --precision
-    trainer_parser = pl.Trainer.add_argparse_args(parser)
-    trainer_parser._action_groups[1].title = "Trainer Args"
-    parser = argparse.ArgumentParser(add_help=False, parents=[trainer_parser])
-    parser.set_defaults(max_epochs=1)
+    # Manually add Trainer-specific arguments (no add_argparse_args in PL v2)
+    trainer_group = parser.add_argument_group("Trainer Args")
+    trainer_group.add_argument("--max_epochs", type=int, default=1, help="Number of epochs to train for.")
+    trainer_group.add_argument("--accelerator", type=str, default="auto", help="Type of accelerator: 'cpu', 'gpu', etc.")
+    trainer_group.add_argument("--devices", type=int, default=None, help="Number of devices (e.g. GPUs) to use.")
 
     # Basic arguments
-    parser.add_argument(
-        "--wandb",
-        action="store_true",
-        default=False,
-        help="If passed, logs experiment results to Weights & Biases. Otherwise logs only to local Tensorboard.",
-    )
     parser.add_argument(
         "--data_class",
         type=str,
@@ -57,6 +51,12 @@ def _setup_parser():
         help="If non-zero, applies early stopping, with the provided value as the 'patience' argument."
         + " Default is 0.",
     )
+    parser.add_argument(
+        "--check_val_every_n_epoch",
+        type=int,
+        default=1,
+        help="How often to run validation within training (in epochs).",
+    )
 
     # Get the data and model classes, so that we can add their specific arguments
     temp_args, _ = parser.parse_known_args()
@@ -75,6 +75,7 @@ def _setup_parser():
 
     parser.add_argument("--help", "-h", action="help")
     return parser
+
 
 
 @rank_zero_only
@@ -110,9 +111,6 @@ def main():
 
     lit_model_class = lit_models.BaseLitModel
 
-    if args.loss == "transformer":
-        lit_model_class = lit_models.TransformerLitModel
-
     if args.load_checkpoint is not None:
         lit_model = lit_model_class.load_from_checkpoint(args.load_checkpoint, args=args, model=model)
     else:
@@ -125,8 +123,6 @@ def main():
 
     goldstar_metric = "validation/cer" if args.loss in ("transformer",) else "validation/loss"
     filename_format = "epoch={epoch:04d}-validation.loss={validation/loss:.3f}"
-    if goldstar_metric == "validation/cer":
-        filename_format += "-validation.cer={validation/cer:.3f}"
     checkpoint_callback = pl.callbacks.ModelCheckpoint(
         save_top_k=5,
         filename=filename_format,
@@ -140,32 +136,38 @@ def main():
     summary_callback = pl.callbacks.ModelSummary(max_depth=2)
 
     callbacks = [summary_callback, checkpoint_callback]
-    if args.wandb:
-        logger = pl.loggers.WandbLogger(log_model="all", save_dir=str(log_dir), job_type="train")
-        logger.watch(model, log_freq=max(100, args.log_every_n_steps))
-        logger.log_hyperparams(vars(args))
-        experiment_dir = logger.experiment.dir
-    callbacks += [cb.ModelSizeLogger(), cb.LearningRateMonitor()]
     if args.stop_early:
         early_stopping_callback = pl.callbacks.EarlyStopping(
             monitor="validation/loss", mode="min", patience=args.stop_early
         )
         callbacks.append(early_stopping_callback)
 
-    if args.wandb and args.loss in ("transformer",):
-        callbacks.append(cb.ImageToTextLogger())
+    # Keep only arguments that match Trainer __init__ parameters
+    trainer_param_names = inspect.signature(pl.Trainer.__init__).parameters.keys()
+    trainer_kwargs = {k: v for k, v in vars(args).items() if k in trainer_param_names}
+    
+    # Ensure defaults for devices/accelerator
+    if torch.cuda.is_available():
+        trainer_kwargs["accelerator"] = "gpu"
+        trainer_kwargs["devices"] = torch.cuda.device_count()
+    else:
+        trainer_kwargs["accelerator"] = "cpu"
+        trainer_kwargs["devices"] = 1
+    
+    # Initialize Trainer
+    trainer = pl.Trainer(**trainer_kwargs, callbacks=callbacks, logger=logger)
 
-    trainer = pl.Trainer.from_argparse_args(args, callbacks=callbacks, logger=logger)
-
-    trainer.tune(lit_model, datamodule=data)  # If passing --auto_lr_find, this will set learning rate
-
+    # If passing --auto_lr_find, this will set learning rate
+    if getattr(args, "auto_lr_find", False):
+        lr_finder = trainer.tuner.lr_find(lit_model, datamodule=data)
+        new_lr = lr_finder.suggestion()
+        lit_model.hparams.lr = new_lr
+    
     trainer.fit(lit_model, datamodule=data)
 
     best_model_path = checkpoint_callback.best_model_path
     if best_model_path:
         rank_zero_info(f"Best model saved at: {best_model_path}")
-        if args.wandb:
-            rank_zero_info("Best model also uploaded to W&B ")
         trainer.test(datamodule=data, ckpt_path=best_model_path)
     else:
         trainer.test(lit_model, datamodule=data)
