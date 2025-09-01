@@ -210,7 +210,7 @@ def main():
 
     trainer.fit(lit_model, datamodule=data)
 
-    trainer.profiler = pl.profiler.PassThroughProfiler()  # turn profiling off during testing
+    trainer.profiler = pl.profilers.PassThroughProfiler()  # turn profiling off during testing
 
     best_model_path = checkpoint_callback.best_model_path
     if best_model_path:
