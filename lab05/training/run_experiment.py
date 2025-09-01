@@ -35,6 +35,8 @@ def _setup_parser():
     trainer_group.add_argument("--log_every_n_steps", type=int, default=50)
     trainer_group.add_argument("--check_val_every_n_epoch", type=int, default=1)
     trainer_group.add_argument("--gpus", type=int, default=None)  # backward compatibility
+    trainer_group.add_argument("--fast_dev_run", action="store_true")
+    trainer_group.add_argument("--num_sanity_val_steps", type=int, default=2)
 
     # Basic arguments
     parser.add_argument(
@@ -171,10 +173,10 @@ def main():
 
     if args.profile:
         sched = torch.profiler.schedule(wait=0, warmup=3, active=4, repeat=0)
-        profiler = pl.profiler.PyTorchProfiler(export_to_chrome=True, schedule=sched, dirpath=experiment_dir)
+        profiler = pl.profilers.PyTorchProfiler(export_to_chrome=True, schedule=sched, dirpath=experiment_dir)
         profiler.STEP_FUNCTIONS = {"training_step"}  # only profile training
     else:
-        profiler = pl.profiler.PassThroughProfiler()
+        profiler = pl.profilers.PassThroughProfiler()
 
     # Initialize Trainer
     trainer_kwargs = {k: v for k, v in vars(args).items() if k in inspect.signature(pl.Trainer.__init__).parameters.keys()}
