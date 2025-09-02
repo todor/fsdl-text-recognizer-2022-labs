@@ -59,7 +59,6 @@ def make_frontend(
         # what input widgets does it need? we configure an image widget
         inputs=gr.components.Image(type="pil", label="Handwritten Text"),
         title="📝 Text Recognizer",  # what should we display at the top of the page?
-        thumbnail=FAVICON,  # what should we display when the link is shared, e.g. on social media?
         description=__doc__,  # what should we display just above the interface?
         article=readme,  # what long-form content should we display below the interface?
         examples=examples,  # which potential inputs should we provide?
